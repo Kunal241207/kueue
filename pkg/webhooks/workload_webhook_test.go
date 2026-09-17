@@ -74,7 +74,7 @@ func TestValidateWorkload(t *testing.T) {
 		featureGates map[featuregate.Feature]bool
 		workload     *kueue.Workload
 		wantErr      field.ErrorList
-		wantDetail   string
+		verifyDetail bool
 	}{
 		"valid": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
@@ -109,9 +109,9 @@ func TestValidateWorkload(t *testing.T) {
 					Obj(), now).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(statusPath.Child("admission", "podSetAssignments").Index(0).Child("resourceUsage").Key(string(corev1.ResourceCPU)), nil, ""),
+				field.Invalid(statusPath.Child("admission", "podSetAssignments").Index(0).Child("resourceUsage").Key(string(corev1.ResourceCPU)), nil, "is not a multiple of 3"),
 			},
-			wantDetail: "is not a multiple of 3",
+			verifyDetail: true,
 		},
 		"should not request num-pods resource": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
@@ -711,17 +711,12 @@ func TestValidateWorkload(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			gotErr := ValidateWorkload(tc.workload, nil)
-			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
-				t.Errorf("ValidateWorkload() mismatch (-want +got):\n%s", diff)
+			cmpOpts := []cmp.Option{cmpopts.IgnoreFields(field.Error{}, "BadValue")}
+			if !tc.verifyDetail {
+				cmpOpts = append(cmpOpts, cmpopts.IgnoreFields(field.Error{}, "Detail"))
 			}
-			if tc.wantDetail != "" {
-				validationErrs := ValidateWorkload(tc.workload, nil)
-				if len(validationErrs) == 0 {
-					t.Fatalf("expected an error but got none")
-				}
-				if validationErrs[0].Detail != tc.wantDetail {
-					t.Errorf("unexpected error detail, want %q got %q", tc.wantDetail, validationErrs[0].Detail)
-				}
+			if diff := cmp.Diff(tc.wantErr, gotErr, cmpOpts...); diff != "" {
+				t.Errorf("ValidateWorkload() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
